@@ -1,0 +1,108 @@
+name: Release 2D
+
+# Bản release 2D-only nội bộ cho fork yancao2025/OpenCADStudio.
+# Cách dùng: checkout branch 2d-ui rồi chạy
+#   git tag v2d-1.0 && git push origin v2d-1.0
+# là workflow tự build binary Windows + Linux và đính vào release.
+# Cũng có thể chạy tay từ tab Actions (workflow_dispatch).
+
+on:
+  push:
+    tags:
+      - 'v2d-*'
+  workflow_dispatch:
+
+env:
+  # Giống .cargo/config.toml của upstream: cho rustc 1.99 đủ stack.
+  RUST_MIN_STACK: "67108864"
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build
+        shell: bash
+        run: cargo build --locked --release
+
+      - name: Package portable zip
+        shell: pwsh
+        run: |
+          $zip = "OpenCADStudio-${{ github.ref_name }}-windows-x86_64-2d.zip"
+          Compress-Archive -Path target\release\OpenCADStudio.exe -DestinationPath $zip
+          "ZIP=$zip" >> $env:GITHUB_ENV
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-2d
+          path: ${{ env.ZIP }}
+          if-no-files-found: error
+
+  build-linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y \
+            libgl1-mesa-dev libx11-dev libxcursor-dev libxi-dev libxrandr-dev \
+            libxkbcommon-dev libwayland-dev libfontconfig1-dev libfreetype6-dev
+
+      - name: Build
+        run: cargo build --locked --release
+
+      - name: Package tarball
+        run: |
+          TAG="${{ github.ref_name }}"
+          TAR="OpenCADStudio-${TAG}-linux-x86_64-2d.tar.gz"
+          tar -czf "$TAR" -C target/release OpenCADStudio
+          echo "TAR=$TAR" >> "$GITHUB_ENV"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-2d
+          path: ${{ env.TAR }}
+          if-no-files-found: error
+
+  publish-release:
+    needs: [build-windows, build-linux]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create GitHub release and upload
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          ls -la dist
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber --repo "${{ github.repository }}"
+          else
+            gh release create "$TAG" --title "OpenCADStudio 2D ($TAG)" \
+              --notes "Bản 2D-only nội bộ (branch 2d-ui): ẩn tab ribbon Model, chặn 14 lệnh solid 3D + 3DORBIT ở command line. Kernel 3D giữ nguyên — file DWG có solid 3D vẫn mở/đọc được, chỉ không tạo mới được. Muốn bật lại 3D thì revert 2 commit trên branch 2d-ui." \
+              --repo "${{ github.repository }}" dist/*
+          fi
