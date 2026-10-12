@@ -546,7 +546,9 @@ impl Ribbon {
             |mut acc, (i, module)| {
                 // The Layout module no longer has a ribbon tab — its paper-space
                 // tools live in the right-edge side toolbar (see ui::side_toolbar).
-                if module.id() == "layout" {
+                // 2D-only company build: hide the Model tab (3D solid tools) too.
+                // Kernel 3D giữ nguyên — DWG có solid 3D vẫn mở/đọc được.
+                if module.id() == "layout" || module.id() == "model" {
                     return acc;
                 }
 

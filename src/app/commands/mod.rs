@@ -144,6 +144,22 @@ impl OpenCADStudio {
         };
         let resolved = self.resolve_alias(cmd);
         let cmd = resolved.as_deref().unwrap_or(cmd);
+        // 2D-only company build: refuse 3D solid commands at the command line.
+        // (Ribbon tab "Model" đã bị ẩn ở src/ui/ribbon/mod.rs; đây là lớp chặn gõ trực tiếp.)
+        const DISABLED_3D_COMMANDS: &[&str] = &[
+            "BOX", "CYLINDER", "CONE", "SPHERE", "TORUS", "WEDGE",
+            "EXTRUDE", "REVOLVE", "SWEEP", "LOFT",
+            "UNION", "SUBTRACT", "INTERSECT", "PRESSPULL",
+            "3DORBIT",
+        ];
+        if DISABLED_3D_COMMANDS
+            .iter()
+            .any(|blocked| blocked.eq_ignore_ascii_case(cmd))
+        {
+            self.command_line
+                .push_error("3D commands are disabled in this 2D build.");
+            return Task::none();
+        }
         if is_spacemouse_command(cmd) {
             return self.run_action(cmd);
         }
